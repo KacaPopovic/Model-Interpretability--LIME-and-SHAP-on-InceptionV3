@@ -7,7 +7,7 @@ import numpy as np
 from skimage.segmentation import slic
 from skimage.util import img_as_float
 from sklearn.linear_model import LinearRegression
-from torchvision.datasets import ImageNet
+import json
 
 class Lime:
     """
@@ -23,7 +23,15 @@ class Lime:
         self.predictions = []
         self.similarities = []
         self.original_prediction = None
+        self.class_names = self.load_directory('imagenet_class_index.json')
 
+    def load_directory(self, json_path):
+        with open(json_path) as f:
+            class_idx = json.load(f)
+
+        # Convert the JSON file to a dictionary where keys are indices and values are class names
+        class_names = {int(key): value[1] for key, value in class_idx.items()}
+        return class_names
     def load_image(self, image_path):
         img = Image.open(image_path).convert('RGB')
         # Convert in a format for Inception V3
@@ -34,6 +42,10 @@ class Lime:
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ])
         self.image = preprocess(img).unsqueeze(0)
+        output = self.model(self.image)
+        output = self.get_top_predictions(output)
+        class_name = self.class_names[output[1]]
+        self.plot_image(self.image, class_name)
 
     def delete_memory(self):
         self.image = None
@@ -84,7 +96,9 @@ class Lime:
             output = self.model(img_tensor)
             probs = torch.nn.functional.softmax(output, dim=1)
             perturbed_image_probs = probs.squeeze()[top_classes_original].tolist()
+            # self.plot_image(img_tensor)
             self.predictions.append(perturbed_image_probs)
+
 
 
     def plot_image(self, image_tensor, title=None):
@@ -140,15 +154,18 @@ class Lime:
         highest_indices = sorted_indices[0:num_superpixels]
 
         # Creating a mask of ones, size as 'unique_segments'
-        decisions = np.ones(len(np.unique(self.segments)), dtype=int)
+        decisions = np.zeros(len(np.unique(self.segments)), dtype=int)
+        # Setting the mask entries corresponding to the picked indices to zero
+        decisions[highest_indices] = 1  # Create perturbed image using the mask
         mask = np.isin(self.segments, unique_segments[decisions == 1])
 
-        # Setting the mask entries corresponding to the picked indices to zero
-        mask[highest_indices] = 0 # Create perturbed image using the mask
         perturbed_image = self.image * torch.tensor(mask, dtype=torch.float32)
-        output = self.model(perturbed_image)
+        output = self.model(self.image)
+        output = self.get_top_predictions(output)
+        class_imagenet = output[prediction_index]
+        class_name = self.class_names[class_imagenet]
         #output_class = dataset.classes[output]
-        self.plot_image(perturbed_image)
+        self.plot_image(perturbed_image, class_name)
     def get_top_predictions(self, prediction, top_n=2):
         """
         Gets the top N predictions from the model output.
@@ -192,9 +209,9 @@ if __name__ == "__main__":
     for im in images:
         lime_instance.load_image(im)
         lime_instance.generate_superpixels()
-        lime_instance.create_perturbed_images_and_predict(num_pertubations=10)
+        lime_instance.create_perturbed_images_and_predict(num_pertubations=200)
         coeffs = lime_instance.fit_regression()
-        lime_instance.visualize_impact()
+        lime_instance.visualize_impact(prediction_index=1)
         lime_instance.delete_memory()
 """
     # Select random 15 perturbed images
