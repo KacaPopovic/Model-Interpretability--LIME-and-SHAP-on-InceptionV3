@@ -7,7 +7,7 @@ import numpy as np
 from skimage.segmentation import slic
 from skimage.util import img_as_float
 from sklearn.linear_model import LinearRegression
-
+from torchvision.datasets import ImageNet
 
 class Lime:
     """
@@ -34,6 +34,15 @@ class Lime:
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ])
         self.image = preprocess(img).unsqueeze(0)
+
+    def delete_memory(self):
+        self.image = None
+        self.segments = None
+        self.perturbed_images = []
+        self.perturbations = []
+        self.predictions = []
+        self.similarities = []
+        self.original_prediction = None
 
     def generate_superpixels(self, n_segments=50):
         """
@@ -126,8 +135,20 @@ class Lime:
 
     def visualize_impact(self, prediction_index=1, num_superpixels=4):
         coeffs = self.regression_model.coef_[prediction_index,:]
+        unique_segments = np.unique(self.segments)
+        sorted_indices = np.argsort(-self.regression_model.coef_[prediction_index, :])
+        highest_indices = sorted_indices[0:num_superpixels]
 
+        # Creating a mask of ones, size as 'unique_segments'
+        decisions = np.ones(len(np.unique(self.segments)), dtype=int)
+        mask = np.isin(self.segments, unique_segments[decisions == 1])
 
+        # Setting the mask entries corresponding to the picked indices to zero
+        mask[highest_indices] = 0 # Create perturbed image using the mask
+        perturbed_image = self.image * torch.tensor(mask, dtype=torch.float32)
+        output = self.model(perturbed_image)
+        #output_class = dataset.classes[output]
+        self.plot_image(perturbed_image)
     def get_top_predictions(self, prediction, top_n=2):
         """
         Gets the top N predictions from the model output.
@@ -167,14 +188,14 @@ if __name__ == "__main__":
 
     # Assume model is a predefined model and image_path the location of the image
     lime_instance = Lime(model)
-    images = ["image1.jpg", "image1.jpg", "image1.jpg"]
+    images = ["image1.jpg", "image2.jpg", "image3.jpg"]
     for im in images:
         lime_instance.load_image(im)
         lime_instance.generate_superpixels()
         lime_instance.create_perturbed_images_and_predict(num_pertubations=10)
-        #lime_instance.perform_predictions()
-
-    coeffs = lime_instance.fit_regression()
+        coeffs = lime_instance.fit_regression()
+        lime_instance.visualize_impact()
+        lime_instance.delete_memory()
 """
     # Select random 15 perturbed images
     if len(lime_instance.perturbed_images) > 15:
