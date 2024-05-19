@@ -11,7 +11,34 @@ import json
 
 class Lime:
     """
-        Local Interpretable Model-Agnostic (LIME) class.
+    This class implements the Lime algorithm for explainable machine learning.
+
+    Parameters:
+        model: The trained machine learning model.
+
+    Attributes:
+        model: The trained machine learning model.
+        image: The input image for explanation.
+        segments: The segmented image.
+        perturbed_images: List of perturbed images.
+        perturbations: List of perturbations for each perturbed image.
+        predictions: List of predicted probabilities for each perturbed image.
+        similarities: List of similarity weights for each perturbation.
+        original_prediction: The original prediction for the input image.
+        class_names: Dictionary of class names loaded from 'imagenet_class_index.json'.
+
+    Methods:
+        __init__: Initializes an instance of the Lime class.
+        load_directory: Loads the class names from a JSON file.
+        load_image: Loads an image for explanation.
+        delete_memory: Deletes all the attributes of the class.
+        generate_superpixels: Generates superpixels for the segmented image.
+        create_perturbed_images_and_predict: Creates perturbed images and predicts probabilities.
+        plot_image: Plots the provided image tensor.
+        perform_predictions: Predicts probabilities for all perturbed images.
+        fit_regression: Fits a linear regression model to explain the predictions.
+        visualize_impact: Visualizes the impact of perturbations on the prediction.
+        get_top_predictions: Gets the top N predictions from the model output.
     """
 
     def __init__(self, model):
@@ -26,6 +53,12 @@ class Lime:
         self.class_names = self.load_directory('imagenet_class_index.json')
 
     def load_directory(self, json_path):
+        """
+        Loads a JSON file from the specified directory and converts it into a dictionary where keys are indices and values are class names.
+
+        :param json_path: The path to the JSON file to be loaded
+        :return: A dictionary where keys are indices and values are class names
+        """
         with open(json_path) as f:
             class_idx = json.load(f)
 
@@ -33,6 +66,23 @@ class Lime:
         class_names = {int(key): value[1] for key, value in class_idx.items()}
         return class_names
     def load_image(self, image_path):
+        """
+        Load an image and preprocess it for input to the model.
+
+        :param image_path: The path to the image file.
+        :return: None
+
+        This method loads the image from the specified `image_path` and converts it to the RGB format. It then applies a series of transformations to preprocess the image for input to the model. The transformations include resizing the image to 299x299 pixels, center cropping the image, converting it to a tensor, and normalizing it using the specified mean and standard deviation values.
+
+        After preprocessing the image, the method assigns the preprocessed image to the `self.image` attribute. It then feeds the image to the model and obtains the output. The output is processed to obtain the top predictions, and the corresponding class name is extracted from the `self.class_names` list. Finally, the method calls the `self.plot_image` method to display the preprocessed image along with its predicted class name.
+
+        Note: This method assumes that the necessary imports and variable declarations have been made before calling the method.
+
+        Example usage:
+        ```python
+        load_image('/path/to/image.jpg')
+        ```
+        """
         img = Image.open(image_path).convert('RGB')
         # Convert in a format for Inception V3
         preprocess = transforms.Compose([
@@ -48,6 +98,11 @@ class Lime:
         self.plot_image(self.image, class_name)
 
     def delete_memory(self):
+        """
+        Delete the memory stored in the object.
+
+        :return: None
+        """
         self.image = None
         self.segments = None
         self.perturbed_images = []
@@ -58,10 +113,10 @@ class Lime:
 
     def generate_superpixels(self, n_segments=50):
         """
-        Permutation to be in a format for SLIC algorithm.
-        SLIC algorithm retuns segmented image - each unique number in the image
-        represents one superpixel segment and all pixels in the same segment have
-        same number
+        :param n_segments: The number of desired superpixels to generate. Default value is 50.
+        :return: None
+
+        This method generates superpixels for the given image using the SLIC algorithm. The generated superpixels are stored in the 'segments' attribute of the object.
         """
         image = self.image
         image_np = image.squeeze().permute(1, 2, 0).numpy()
@@ -71,7 +126,12 @@ class Lime:
 
 
     def create_perturbed_images_and_predict(self, num_pertubations=300):
+        """
+        Creates perturbed images and predicts their class probabilities.
 
+        :param num_pertubations: The number of perturbations to create. Default is 300.
+        :return: None
+        """
         unique_segments = np.unique(self.segments)
         perturbed_images = []
 
@@ -127,6 +187,11 @@ class Lime:
         plt.show()
 
     def perform_predictions(self):
+        """
+        Perform predictions using the model on the given image and perturbed images.
+
+        :return: None
+        """
         self.original_prediction = self.model(self.image)
         for img_tensor in self.perturbed_images:
             output = self.model(img_tensor)
@@ -134,6 +199,11 @@ class Lime:
             self.predictions.append(predictions)
 
     def fit_regression(self):
+        """
+        Fits a linear regression model to the provided data.
+
+        :return: The coefficients of the regression model.
+        """
         # Assign instance variables to local variables
         X = np.array(self.perturbations)  # Feature variable
         y = np.array(self.predictions)  # Target variable
@@ -148,6 +218,14 @@ class Lime:
         return self.regression_model.coef_
 
     def visualize_impact(self, prediction_index=1, num_superpixels=4):
+        """
+        :param prediction_index: The index of the prediction for which the impact is visualized. By default, it is set to 1.
+        :param num_superpixels: The number of top superpixels to consider. By default, it is set to 4.
+        :return: None
+
+        This method visualizes the impact of each superpixel on a specific prediction. It creates a mask of ones with the size equal to the number of unique segments in the image. Then, it selects the top `num_superpixels` superpixels based on the coefficient values from the regression model for the specified `prediction_index`. The selected superpixels are set to zero in the mask, creating a perturbed image. It then passes the perturbed image through a model and retrieves the class prediction for the specified `prediction_index`. Finally, it calls the `plot_image` method to display the perturbed image with the corresponding class name.
+
+        """
         coeffs = self.regression_model.coef_[prediction_index,:]
         unique_segments = np.unique(self.segments)
         sorted_indices = np.argsort(-self.regression_model.coef_[prediction_index, :])
@@ -187,18 +265,7 @@ def exponential_kernel(similarity, width):
 
 if __name__ == "__main__":
     # Load the pre-trained model using the new `weights` parameter
-    """weights = Inception_V3_Weights.IMAGENET1K_V1
-    model = inception_v3(weights=weights)
-    model.eval()
-    Lime1 = Lime(model, "image1.JPG")
-    perm = Lime1.generate_superpixels()
-    perturbed_images = Lime1.perturb_image()
-    # Plot the first perturbed image
-    perturbed_img = perturbed_images[0].squeeze()
-    Lime1.plot_image(perturbed_img)
-    Lime1.create_perturbed_images()
-    k = 3
-    """
+
     weights = Inception_V3_Weights.IMAGENET1K_V1
     model = inception_v3(weights=weights)
     model.eval()
@@ -213,14 +280,4 @@ if __name__ == "__main__":
         coeffs = lime_instance.fit_regression()
         lime_instance.visualize_impact(prediction_index=1)
         lime_instance.delete_memory()
-"""
-    # Select random 15 perturbed images
-    if len(lime_instance.perturbed_images) > 15:
-        perturbed_images_sample = random.sample(lime_instance.perturbed_images, 15)
-    else:
-        perturbed_images_sample = lime_instance.perturbed_images
 
-    # Plot 15 random perturbations
-    for i, img_tensor in enumerate(perturbed_images_sample, 1):
-        lime_instance.plot_image(img_tensor, title=f"Perturbed Image {i}")
-    """
